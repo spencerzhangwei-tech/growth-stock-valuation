@@ -2,8 +2,7 @@
  * Vercel Serverless Function: 成长股估值分析
  */
 
-const RETRY = (fn, retries = 3, delay = 2000) =>
-  fn().catch(e => retries > 0 ? new Promise(r => setTimeout(r, delay)).then(() => RETRY(fn, retries - 1, delay * 1.5)) : Promise.reject(e));
+const SLEEP = ms => new Promise(r => setTimeout(r, ms));
 
 // ─── 腾讯实时行情 ────────────────────────────────────────────
 async function fetchTencentQuote(code) {
@@ -11,74 +10,61 @@ async function fetchTencentQuote(code) {
     ? code
     : (code.startsWith('0') || code.startsWith('3') ? 'sz' + code : 'sh' + code);
 
-  const url = `https://qt.gtimg.cn/q=${tc_code}`;
-  let res;
   try {
-    res = await fetch(url, {
+    const res = await fetch(`https://qt.gtimg.cn/q=${tc_code}`, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' }
     });
-  } catch (e) { return null; }
-
-  let text;
-  try { text = await res.text(); } catch (e) { return null; }
-
-  const m = text.match(/v_[a-z]{2}\d{6}="([^"]+)"/);
-  if (!m) return null;
-
-  const f = m[1].split('~');
-  if (f.length < 45) return null;
-
-  const price = parseFloat(f[3]) || 0;
-  const yesterdayClose = parseFloat(f[4]) || price;
-  const changePct = yesterdayClose ? ((price - yesterdayClose) / yesterdayClose * 100) : 0;
-  const peRaw = parseFloat(f[39]) || 0;
-  const pbRaw = parseFloat(f[46]) || 0;
-
-  return {
-    name: f[1] || '',
-    code,
-    price,
-    change_pct: Math.round(changePct * 100) / 100,
-    volume: parseInt(f[6]) || 0,
-    market_cap: Math.round((parseFloat(f[44]) || 0) * 100) / 100,
-    flow_cap: Math.round((parseFloat(f[45]) || 0) * 100) / 100,
-    pb: (0 < pbRaw && pbRaw < 100) ? Math.round(pbRaw * 100) / 100 : null,
-    pe: (0 < peRaw && peRaw < 500) ? Math.round(peRaw * 100) / 100 : null,
-    exchange: tc_code.startsWith('sz') ? '深交所' : '上交所',
-    yesterday_close: yesterdayClose,
-  };
+    if (!res.ok) return null;
+    const text = await res.text();
+    const m = text.match(/v_[a-z]{2}\d{6}="([^"]+)"/);
+    if (!m) return null;
+    const f = m[1].split('~');
+    if (f.length < 45) return null;
+    const price = parseFloat(f[3]) || 0;
+    const yesterdayClose = parseFloat(f[4]) || price;
+    return {
+      name: f[1] || '',
+      code,
+      price,
+      change_pct: yesterdayClose ? Math.round(((price - yesterdayClose) / yesterdayClose * 100) * 100) / 100 : 0,
+      volume: parseInt(f[6]) || 0,
+      market_cap: Math.round((parseFloat(f[44]) || 0) * 100) / 100,
+      flow_cap: Math.round((parseFloat(f[45]) || 0) * 100) / 100,
+      pb: (() => { const v = parseFloat(f[46]); return (v > 0 && v < 100) ? Math.round(v * 100) / 100 : null; })(),
+      pe: (() => { const v = parseFloat(f[39]); return (v > 0 && v < 500) ? Math.round(v * 100) / 100 : null; })(),
+      exchange: tc_code.startsWith('sz') ? '深交所' : '上交所',
+      yesterday_close: yesterdayClose,
+    };
+  } catch (e) {
+    console.error('Tencent quote error:', e.message);
+    return null;
+  }
 }
 
 // ─── 腾讯股票搜索 ────────────────────────────────────────────
 async function searchStocks(query) {
-  const url = `https://smartbox.gtimg.cn/s3/?v=1&t=all&q=${encodeURIComponent(query)}`;
-  let res;
   try {
-    res = await fetch(url, {
+    const res = await fetch(`https://smartbox.gtimg.cn/s3/?v=1&t=all&q=${encodeURIComponent(query)}`, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' }
     });
-  } catch (e) { return []; }
-
-  let text;
-  try { text = await res.text(); } catch (e) { return []; }
-
-  const results = [];
-  for (const line of text.split('\n')) {
-    if (line.includes('v_hint=') && !line.includes('v_hint="N"')) {
+    if (!res.ok) return [];
+    const text = await res.text();
+    const results = [];
+    for (const line of text.split('\n')) {
+      if (!line.includes('v_hint=') || line.includes('v_hint="N"')) continue;
       const m = line.match(/v_hint="([^"]+)"/);
       if (!m) continue;
       const p = m[1].split('~');
       if (p.length < 3 || !['sz', 'sh'].includes(p[0])) continue;
       let name = p[2];
       try { name = JSON.parse(`"${name}"`); } catch (_) {}
-      results.push({
-        name,
-        code: p[0] + p[1],
-        exchange: p[0] === 'sz' ? '深交所' : '上交所',
-      });
+      results.push({ name, code: p[0] + p[1], exchange: p[0] === 'sz' ? '深交所' : '上交所' });
     }
+    return results.slice(0, 8);
+  } catch (e) {
+    console.error('Search error:', e.message);
+    return [];
   }
-  return results.slice(0, 8);
 }
 
 // ─── 东方财富财务数据 ──────────────────────────────────────
@@ -87,51 +73,47 @@ async function fetchFinancialData(code) {
     ? code.replace('sh', 'SH').replace('sz', 'SZ')
     : (code.startsWith('0') || code.startsWith('3') ? 'SZ' + code : 'SH' + code);
 
-  const url = `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/ZYZBAjaxNew?type=0&code=${em_code}`;
-
-  let res;
-  try {
-    res = await RETRY(() =>
-      fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.securities.eastmoney.com' }
-      })
-    );
-  } catch (e) { return null; }
-
-  let data;
-  try { data = await res.json(); } catch (e) { return null; }
-
-  const records = data?.data || [];
-  if (!records.length) return null;
-
-  let annual = records.find(r => r.REPORT_DATE?.includes('-12-31'));
-  let latest = annual || records[0];
-  let prev = records[1] || null;
-
-  const roe = latest.ROEJQ || 0;
-  const revGrowth = latest.TOTALOPERATEREVETZ || 0;
-  const profitGrowth = latest.PARENTNETPROFITTZ || 0;
-  const revenue = (latest.TOTALOPERATEREVE || 0) / 1e8;
-  const netProfit = (latest.PARENTNETPROFIT || 0) / 1e8;
-  const eps = latest.EPSJB || 0;
-  const bps = latest.BPS || 0;
-
-  const prevRevenue = prev ? (prev.TOTALOPERATEREVE || 0) / 1e8 : revenue / (1 + revGrowth / 100) || revenue;
-  const prevProfit = prev ? (prev.PARENTNETPROFIT || 0) / 1e8 : netProfit / (1 + profitGrowth / 100) || netProfit;
-  const prevRoe = prev ? (prev.ROEJQ || 0) : roe;
-
-  return {
-    roe: Math.round(roe * 100) / 100,
-    rev_growth: Math.round(revGrowth * 100) / 100,
-    profit_growth: Math.round(profitGrowth * 100) / 100,
-    revenue: Math.round(revenue * 100) / 100,
-    net_profit: Math.round(netProfit * 100) / 100,
-    eps: Math.round(eps * 100) / 100,
-    bps: Math.round(bps * 100) / 100,
-    prev_roe: Math.round(prevRoe * 100) / 100,
-    prev_revenue: Math.round(prevRevenue * 100) / 100,
-    prev_net_profit: Math.round(prevProfit * 100) / 100,
-  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/ZYZBAjaxNew?type=0&code=${em_code}`,
+        { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.securities.eastmoney.com' } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const records = data?.data || [];
+      if (!records.length) return null;
+      let annual = records.find(r => r.REPORT_DATE?.includes('-12-31'));
+      let latest = annual || records[0];
+      let prev = records[1] || null;
+      const roe = latest.ROEJQ || 0;
+      const revGrowth = latest.TOTALOPERATEREVETZ || 0;
+      const profitGrowth = latest.PARENTNETPROFITTZ || 0;
+      const revenue = (latest.TOTALOPERATEREVE || 0) / 1e8;
+      const netProfit = (latest.PARENTNETPROFIT || 0) / 1e8;
+      const eps = latest.EPSJB || 0;
+      const bps = latest.BPS || 0;
+      const prevRevenue = prev ? (prev.TOTALOPERATEREVE || 0) / 1e8 : revenue / (1 + revGrowth / 100) || revenue;
+      const prevProfit = prev ? (prev.PARENTNETPROFIT || 0) / 1e8 : netProfit / (1 + profitGrowth / 100) || netProfit;
+      const prevRoe = prev ? (prev.ROEJQ || 0) : roe;
+      return {
+        roe: Math.round(roe * 100) / 100,
+        rev_growth: Math.round(revGrowth * 100) / 100,
+        profit_growth: Math.round(profitGrowth * 100) / 100,
+        revenue: Math.round(revenue * 100) / 100,
+        net_profit: Math.round(netProfit * 100) / 100,
+        eps: Math.round(eps * 100) / 100,
+        bps: Math.round(bps * 100) / 100,
+        prev_roe: Math.round(prevRoe * 100) / 100,
+        prev_revenue: Math.round(prevRevenue * 100) / 100,
+        prev_net_profit: Math.round(prevProfit * 100) / 100,
+      };
+    } catch (e) {
+      console.error(`EM attempt ${attempt+1} failed:`, e.message);
+      if (attempt < 2) await SLEEP(2000 * (attempt + 1));
+    }
+  }
+  return null;
 }
 
 // ─── 估值计算 ──────────────────────────────────────────────
@@ -160,9 +142,7 @@ function calculateValuation(quote, financial) {
 
   const pe = quote.pe;
   const negativeGrowth = profitGrowth < 0;
-  let peg = null;
-  if (pe && pe > 0 && profitGrowth > 0) peg = pe / profitGrowth;
-
+  let peg = (pe && pe > 0 && profitGrowth > 0) ? pe / profitGrowth : null;
   let pegStatus, pegScore;
   if (peg != null) {
     if (peg <= 0.8) { pegStatus = '严重低估'; pegScore = 100; }
@@ -174,7 +154,6 @@ function calculateValuation(quote, financial) {
   else { pegStatus = '数据不足'; pegScore = 50; }
 
   const totalScore = roeScore * 0.30 + psScore * 0.30 + pegScore * 0.40;
-
   let fairPricePeg = null, safePricePeg = null, fairPricePs = null;
   if (profitGrowth > 0 && eps > 0) {
     fairPricePeg = profitGrowth * eps;
@@ -187,7 +166,6 @@ function calculateValuation(quote, financial) {
   const prices = [fairPricePeg, safePricePeg].filter(p => p && p > 0);
   const fairPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : fairPricePs;
   const upside = (fairPrice && price > 0) ? (fairPrice - price) / price * 100 : null;
-
   const pegStr = peg != null ? peg.toFixed(2) : 'N/A';
   let verdict, verdictDetail;
   if (totalScore >= 80) { verdict = '🌟 优质成长股,可重点关注'; verdictDetail = `ROE=${roe}%(${roeRating})+ 净利增速${profitGrowth}% + PEG=${pegStr},三维评分${totalScore.toFixed(0)}分,估值合理或偏低。`; }
@@ -221,9 +199,7 @@ function calculateValuation(quote, financial) {
 
 // ─── 股票代码解析 ────────────────────────────────────────────
 async function resolveCode(query) {
-  if (/^\d{6}$/.test(query)) {
-    return query.startsWith('0') || query.startsWith('3') ? 'sz' + query : 'sh' + query;
-  }
+  if (/^\d{6}$/.test(query)) return query.startsWith('0') || query.startsWith('3') ? 'sz' + query : 'sh' + query;
   if (query.startsWith('sh') || query.startsWith('sz')) return query;
   try {
     const results = await searchStocks(query);
@@ -231,46 +207,76 @@ async function resolveCode(query) {
   } catch (e) { return null; }
 }
 
-// ─── Vercel Handler ────────────────────────────────────────
+// ─── Handler ────────────────────────────────────────────────
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') return res.status(200).end();
+
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
 
     const { code, q } = req.query || {};
 
-    if (q != null) {
+    // 搜索模式
+    if (q !== undefined) {
       const results = await searchStocks(String(q).trim());
-      return res.status(200).type('application/json; charset=utf-8').send(JSON.stringify(results));
+      res.status(200).type('application/json; charset=utf-8').send(JSON.stringify(results));
+      return;
     }
 
+    // 分析模式
     if (!code) {
-      return res.status(400).type('application/json; charset=utf-8').send(JSON.stringify({ error: '请输入股票代码或名称' }));
+      res.status(400).type('application/json; charset=utf-8').send(JSON.stringify({ error: '请输入股票代码或名称' }));
+      return;
     }
 
-    const resolvedCode = await resolveCode(String(code));
-    if (!resolvedCode) {
-      return res.status(404).type('application/json; charset=utf-8').send(JSON.stringify({ error: `无法识别股票: ${code}` }));
+    const queryStr = String(code).trim();
+
+    // 1. 先获取腾讯行情
+    let quote = null;
+    try {
+      quote = await fetchTencentQuote(queryStr);
+    } catch (e) {
+      console.error('Quote fetch error:', e.message);
     }
 
-    const [quote, financial] = await Promise.all([
-      fetchTencentQuote(resolvedCode),
-      fetchFinancialData(resolvedCode),
-    ]);
+    // 如果是中文名，需要先解析成代码再获取行情
+    if (!quote && !/^(sh|sz)\d{6}$/.test(queryStr) && !/^\d{6}$/.test(queryStr)) {
+      const resolved = await resolveCode(queryStr);
+      if (resolved) {
+        quote = await fetchTencentQuote(resolved);
+        if (quote) quote.code = resolved; // 用解析后的代码
+      }
+    } else if (!quote) {
+      quote = await fetchTencentQuote(queryStr);
+    }
 
     if (!quote) {
-      return res.status(404).type('application/json; charset=utf-8').send(JSON.stringify({ error: `获取股票行情失败: ${resolvedCode}` }));
-    }
-    if (!financial) {
-      return res.status(404).type('application/json; charset=utf-8').send(JSON.stringify({ error: `获取财务数据失败: ${resolvedCode}` }));
+      res.status(404).type('application/json; charset=utf-8').send(JSON.stringify({ error: `获取股票行情失败: ${queryStr}` }));
+      return;
     }
 
+    // 2. 获取财务数据
+    const financial = await fetchFinancialData(quote.code);
+    if (!financial) {
+      res.status(404).type('application/json; charset=utf-8').send(JSON.stringify({ error: `获取财务数据失败: ${quote.code}` }));
+      return;
+    }
+
+    // 3. 计算估值
     const valuation = calculateValuation(quote, financial);
-    return res.status(200).type('application/json; charset=utf-8').send(JSON.stringify({ stock: quote, financial, valuation }));
+    res.status(200).type('application/json; charset=utf-8').send(JSON.stringify({ stock: quote, financial, valuation }));
+
   } catch (e) {
-    console.error('Unhandled error:', e);
-    return res.status(500).type('text/plain; charset=utf-8').send('Internal error: ' + e.message);
+    console.error('Fatal error:', e);
+    try {
+      res.status(500).type('application/json; charset=utf-8').send(JSON.stringify({ error: '服务器内部错误: ' + e.message }));
+    } catch (_) {
+      res.status(500).type('text/plain').send('Internal error');
+    }
   }
 };
