@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>成长股估值 · ROE+PS+PEG 三维分析</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0d13;
+      --card: #13161f;
+      --card-hover: #1a1e2a;
+      --border: #252a3a;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --accent-glow: rgba(99,102,241,0.25);
+      --green: #22c55e;
+      --green-dim: rgba(34,197,94,0.15);
+      --yellow: #eab308;
+      --yellow-dim: rgba(234,179,8,0.15);
+      --red: #ef4444;
+      --red-dim: rgba(239,68,68,0.15);
+
+      /* A股涨跌色：A股红涨绿跌，与西方相反 */
+      --up-color: #ef4444;
+      --up-bg: rgba(239,68,68,0.15);
+      --down-color: #22c55e;
+      --down-bg: rgba(34,197,94,0.15);
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.8rem;
+      padding-bottom: 1.2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+    }
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    .logo-text { font-size: 1.2rem; font-weight: 700; }
+    .logo-sub { font-size: 0.7rem; color: var(--text-muted); }
+    .header-tag {
+      font-size: 0.7rem;
+      background: var(--accent-glow);
+      color: var(--accent);
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(99,102,241,0.3);
+    }
+
+    /* Search */
+    .search-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .search-row {
+      display: flex;
+      gap: 0.8rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .search-wrap { position: relative; flex: 1; min-width: 240px; }
+    .search-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.7rem 1rem;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--text-muted); }
+    .autocomplete {
+      position: absolute;
+      top: 100%; left: 0; right: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-top: 4px;
+      z-index: 100;
+      display: none;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .autocomplete.show { display: block; }
+    .autocomplete-item {
+      padding: 0.6rem 1rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: var(--accent-glow); }
+    .autocomplete-item .s-name { color: var(--text); font-weight: 500; }
+    .autocomplete-item .s-code { color: var(--text-muted); font-size: 0.75rem; }
+    .autocomplete-item .s-ex {
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--accent-glow);
+      color: var(--accent);
+    }
+    .analyze-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+      border: none;
+      padding: 0.7rem 1.8rem;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    .analyze-btn:hover { opacity: 0.88; }
+    .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Status */
+    .status-msg {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      margin-bottom: 1.2rem;
+      text-align: center;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .status-msg.error { border-color: var(--red); color: var(--red); display: block; }
+    .status-msg.loading { border-color: var(--accent); color: var(--accent); display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+
+    /* Main content */
+    #main { display: none; }
+
+    /* Stock hero */
+    .stock-hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .stock-info h1 { font-size: 1.7rem; font-weight: 800; margin-bottom: 0.3rem; }
+    .stock-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      flex-wrap: wrap;
+    }
+    .stock-meta .tag {
+      background: var(--accent-glow);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .price-block { display: flex; align-items: baseline; gap: 0.8rem; margin-top: 0.5rem; }
+    .current-price { font-size: 2rem; font-weight: 800; }
+    .change-badge {
+      font-size: 0.88rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 8px;
+    }
+    .change-badge.up { background: var(--up-bg); color: var(--up-color); }
+    .change-badge.down { background: var(--down-bg); color: var(--down-color); }
+
+    /* Score hero */
+    .score-hero {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 1.2rem;
+      margin-bottom: 1.5rem;
+    }
+    .score-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .score-gauge { width: 170px; height: 170px; }
+    .score-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.4rem; }
+    .score-value { font-size: 1.6rem; font-weight: 800; margin-top: 0.3rem; }
+    .score-descrip { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+    /* 3D metrics grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.8rem;
+    }
+    .metric-tile {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+    }
+    .metric-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.6rem;
+    }
+    .metric-name { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .metric-badge {
+      font-size: 0.65rem;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+    }
+    .metric-badge.green { background: var(--green-dim); color: var(--green); }
+    .metric-badge.yellow { background: var(--yellow-dim); color: var(--yellow); }
+    .metric-badge.red { background: var(--red-dim); color: var(--red); }
+    .metric-big { font-size: 1.6rem; font-weight: 800; margin-bottom: 0.3rem; }
+    .metric-sub { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.6rem; }
+    .metric-bar { height: 4px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .metric-bar-fill { height: 100%; border-radius: 3px; transition: width 0.8s ease; }
+    .metric-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem;
+      margin-top: 0.6rem;
+      font-size: 0.72rem;
+    }
+    .metric-detail-item {
+      background: var(--bg);
+      border-radius: 6px;
+      padding: 0.4rem 0.5rem;
+    }
+    .metric-detail-item .label { color: var(--text-muted); }
+    .metric-detail-item .val { color: var(--text); font-weight: 600; margin-top: 0.1rem; }
+
+    /* Charts row */
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+    .charts-row-full { margin-bottom: 1.2rem; }
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.2rem;
+    }
+    .chart-title { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.15rem; }
+    .chart-sub { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.8rem; }
+    .chart { height: 240px; }
+    .chart.sm { height: 200px; }
+
+    /* Conclusion card */
+    .conclusion-card {
+      background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 1.2rem;
+    }
+    .conclusion-header {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin-bottom: 1rem;
+    }
+    .conclusion-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    .conclusion-title { font-size: 1rem; font-weight: 700; }
+    .conclusion-score { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.1rem; }
+    .conclusion-one-liner {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.8rem;
+      padding: 0.8rem 1rem;
+      border-radius: 10px;
+    }
+    .conclusion-one-liner.green { background: var(--green-dim); color: var(--green); }
+    .conclusion-one-liner.yellow { background: var(--yellow-dim); color: var(--yellow); }
+    .conclusion-one-liner.red { background: var(--red-dim); color: var(--red); }
+    .conclusion-detail { font-size: 0.82rem; color: var(--text-dim); line-height: 1.7; }
+
+    /* Valuation table */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; margin-bottom: 1.2rem; }
+    .card-title { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+    .card-title .num {
+      width: 22px; height: 22px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    th {
+      text-align: left;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+    tr:last-child td { border-bottom: none; }
+    td:first-child { color: var(--text); font-weight: 500; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+    .tag.green { background: var(--green-dim); color: var(--green); }
+    .tag.yellow { background: var(--yellow-dim); color: var(--yellow); }
+    .tag.red { background: var(--red-dim); color: var(--red); }
+
+    /* Formula box */
+    .formula-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      line-height: 1.9;
+      margin-bottom: 0.8rem;
+    }
+    .formula-box code { color: var(--accent); font-family: 'Courier New', monospace; }
+
+    /* Quick lookup table */
+    .quick-table {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.7rem;
+    }
+    .quick-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      text-align: center;
+    }
+    .quick-item.active { border-color: var(--accent); background: var(--accent-glow); }
+    .quick-item .qgrowth { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.3rem; }
+    .quick-item .qpe { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+    .quick-item .qps { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.2rem; }
+    .quick-item .qnote { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--border);
+      margin-top: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .score-hero { grid-template-columns: 1fr; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .charts-row { grid-template-columns: 1fr; }
+      .quick-table { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📊</div>
+      <div>
+        <div class="logo-text">成长股估值</div>
+        <div class="logo-sub">ROE + PS + PEG 三维定价模型</div>
+      </div>
+    </div>
+    <div class="header-tag">🔍 A股实时分析</div>
+  </header>
+
+  <!-- Search Section -->
+  <div class="search-section">
+    <div class="search-row">
+      <div class="search-wrap">
+        <input type="text" class="search-input" id="stock-input"
+               placeholder="输入股票代码或名称，如：贵州茅台、600519、宁德时代"
+               autocomplete="off" />
+        <div class="autocomplete" id="autocomplete"></div>
+      </div>
+      <button class="analyze-btn" id="analyze-btn" onclick="analyze()">
+        <span>🚀</span>
+        <span>开始分析</span>
+      </button>
+    </div>
+    <!-- Quick picks -->
+    <div id="recent-bar" style="display:none;gap:0.5rem;margin-top:0.8rem;flex-wrap:wrap;align-items:center">
+      <span style="font-size:0.72rem;color:var(--text-muted);margin-right:0.2rem">快速分析：</span>
+      <div id="recent-list" style="display:flex;gap:0.5rem;flex-wrap:wrap"></div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-msg" id="status-msg"></div>
+
+  <!-- Main Content -->
+  <div id="main">
+
+    <!-- Stock Hero -->
+    <div class="stock-hero">
+      <div class="stock-info">
+        <h1 id="s-name">—</h1>
+        <div class="stock-meta">
+          <span id="s-code">—</span>
+          <span>·</span>
+          <span id="s-exchange">—</span>
+          <span class="tag" id="s-industry">—</span>
+        </div>
+        <div class="price-block">
+          <span class="current-price" id="s-price">¥—</span>
+          <span class="change-badge up" id="s-change">—</span>
+        </div>
+        <div style="display:flex;gap:0.8rem;margin-top:0.5rem;font-size:0.78rem;color:var(--text-dim)">
+          <span>市值: <strong id="s-mktcap" style="color:var(--text)">—</strong></span>
+          <span>PE: <strong id="s-pe" style="color:var(--text)">—</strong></span>
+          <span>PB: <strong id="s-pb" style="color:var(--text)">—</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score + 3D Metrics -->
+    <div class="score-hero">
+      <div class="score-card">
+        <div class="score-gauge" id="gauge-chart"></div>
+        <div class="score-label">综合估值评分</div>
+        <div class="score-value" id="score-val" style="color:var(--green)">—</div>
+        <div class="score-descrip" id="score-desc">—</div>
+      </div>
+      <div class="metrics-grid" style="display:flex;flex-direction:column;gap:0.7rem">
+        <!-- ROE -->
+        <div class="metric-tile" id="tile-roe">
+          <div class="metric-header">
+            <span class="metric-name">① ROE 盈利质量</span>
+            <span class="metric-badge" id="roe-badge">—</span>
+          </div>
+          <div class="metric-big" id="roe-value" style="color:var(--green)">—%</div>
+          <div class="metric-sub" id="roe-sub">净资产收益率</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="roe-bar" style="width:0%"></div></div>
+          <div class="metric-details">
+            <div class="metric-detail-item"><div class="label">≥20%门槛</div><div class="val" id="roe-threshold">通过</div></div>
+            <div class="metric-detail-item"><div class="label">单项得分</div><div class="val" id="roe-score">—</div></div>
+          </div>
+        </div>
+        <!-- PS -->
+        <div class="metric-tile" id="tile-ps">
+          <div class="metric-header">
+            <span class="metric-name">② PS 市销率</span>
+            <span class="metric-badge" id="ps-badge">—</span>
+          </div>
+          <div class="metric-big" id="ps-value" style="color:var(--yellow)">—倍</div>
+          <div class="metric-sub" id="ps-sub">市值/营收</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="ps-bar" style="width:0%"></div></div>
+          <div class="metric-details">
+            <div class="metric-detail-item"><div class="label">合理区间</div><div class="val" id="ps-range">—</div></div>
+            <div class="metric-detail-item"><div class="label">单项得分</div><div class="val" id="ps-score">—</div></div>
+          </div>
+        </div>
+        <!-- PEG -->
+        <div class="metric-tile" id="tile-peg">
+          <div class="metric-header">
+            <span class="metric-name">③ PEG 成长匹配</span>
+            <span class="metric-badge" id="peg-badge">—</span>
+          </div>
+          <div class="metric-big" id="peg-value" style="color:var(--yellow)">—</div>
+          <div class="metric-sub" id="peg-sub">PE ÷ 净利增速</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="peg-bar" style="width:0%"></div></div>
+          <div class="metric-details">
+            <div class="metric-detail-item"><div class="label">合理PE</div><div class="val" id="peg-fairpe">—</div></div>
+            <div class="metric-detail-item"><div class="label">单项得分</div><div class="val" id="peg-score">—</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">三维评分雷达</div>
+        <div class="chart-sub">ROE · PS · PEG 三维度综合评估</div>
+        <div class="chart" id="radar-chart"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">估值区间对比</div>
+        <div class="chart-sub">合理股价 vs 当前股价</div>
+        <div class="chart" id="range-chart"></div>
+      </div>
+    </div>
+
+    <!-- Charts Row 2: Full width bar -->
+    <div class="charts-row-full">
+      <div class="chart-card">
+        <div class="chart-title">PS–增速 合理性散点</div>
+        <div class="chart-sub">当前PS vs 营收增速（气泡大小=市值）</div>
+        <div class="chart" id="ps-scatter-chart"></div>
+      </div>
+    </div>
+
+    <!-- Conclusion -->
+    <div class="conclusion-card">
+      <div class="conclusion-header">
+        <div class="conclusion-icon">💡</div>
+        <div>
+          <div class="conclusion-title" id="verdict-title">—</div>
+          <div class="conclusion-score" id="verdict-score">综合评分: —</div>
+        </div>
+      </div>
+      <div class="conclusion-one-liner green" id="one-liner">—</div>
+      <div class="conclusion-detail" id="verdict-detail">—</div>
+    </div>
+
+    <!-- Valuation Table -->
+    <div class="card">
+      <div class="card-title"><span class="num">📋</span>估值结果汇总</div>
+      <table>
+        <thead>
+          <tr>
+            <th>指标</th>
+            <th>当前值</th>
+            <th>合理区间</th>
+            <th>状态</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody id="val-table">
+          <tr><td>ROE 净资产收益率</td><td class="num" id="t-roe">—</td><td class="num">≥20%</td><td id="t-roe-status">—</td><td>盈利质量保证</td></tr>
+          <tr><td>PS 市销率</td><td class="num" id="t-ps">—</td><td class="num" id="t-ps-range">—</td><td id="t-ps-status">—</td><td>营收倍数</td></tr>
+          <tr><td>PEG 成长匹配</td><td class="num" id="t-peg">—</td><td class="num">≤1.2</td><td id="t-peg-status">—</td><td>PE÷增速</td></tr>
+          <tr><td>合理股价（PEG）</td><td class="num" id="t-price-peg">—</td><td class="num" id="t-price-safe">安全价: —</td><td id="t-price-status">—</td><td>基于PEG=1</td></tr>
+          <tr><td>当前股价偏离度</td><td class="num" id="t-upside">—</td><td class="num">—</td><td id="t-upside-status">—</td><td>相对合理股价</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 估值参照图（页面最底部） -->
+    <div class="card">
+      <div class="card-title"><span class="num">📐</span>成长股估值参照图</div>
+      <div class="formula-box">
+        <code>合理PE</code> = 增速% &nbsp;(PEG=1) &nbsp;&nbsp;
+        <code>安全PE</code> = 增速% × 0.8 &nbsp;(PEG=0.8) &nbsp;&nbsp;
+        <code>PS合理区间</code> = 增速30%→5-8x &nbsp;|&nbsp; 增速50%→8-12x
+      </div>
+      <div class="chart" id="quick-chart" style="height:280px"></div>
+    </div>
+
+    <footer>基于 ROE≥20% + PS + PEG 三维估值体系 · 数据来源：东方财富 · 仅供参考，不构成投资建议</footer>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let gaugeChart, radarChart, rangeChart, scatterChart, quickChart;
+let chartsInited = false;
+let globalData = null;
+
+// ── Init Charts (lazy - only after main div is visible) ──
+function initCharts() {
+  if (chartsInited) return;
+  chartsInited = true;
+  gaugeChart = echarts.init(document.getElementById('gauge-chart'));
+  radarChart = echarts.init(document.getElementById('radar-chart'));
+  rangeChart = echarts.init(document.getElementById('range-chart'));
+  scatterChart = echarts.init(document.getElementById('ps-scatter-chart'));
+  quickChart = echarts.init(document.getElementById('quick-chart'));
+  window.addEventListener('resize', () => {
+    [gaugeChart, radarChart, rangeChart, scatterChart, quickChart].forEach(c => c && c.resize());
+  });
+}
+
+// ── Sample loader ──
+let recentAnalyses = [];
+
+function addRecentAnalysis(stock) {
+  // 去重
+  recentAnalyses = recentAnalyses.filter(s => s.code !== stock.code);
+  // 头部插入
+  recentAnalyses.unshift(stock);
+  // 最多保留8个
+  if (recentAnalyses.length > 8) recentAnalyses = recentAnalyses.slice(0, 8);
+  renderRecentBar();
+}
+
+function renderRecentBar() {
+  const bar = document.getElementById('recent-bar');
+  const list = document.getElementById('recent-list');
+  if (!recentAnalyses.length) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  list.innerHTML = recentAnalyses.map(s => {
+    const arrow = s.change_pct >= 0 ? '▲' : '▼';
+    const cls = s.change_pct >= 0 ? 'up' : 'down';
+    return `<button onclick="loadRecent('${s.code}')" style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.35rem 0.8rem;font-size:0.78rem;background:var(--card);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text);font-family:inherit">
+      <span style="font-weight:600">${s.name}</span>
+      <span style="font-size:0.7rem;color:${s.change_pct>=0?'var(--up-color)':'var(--down-color)'}">${arrow} ${Math.abs(s.change_pct)}%</span>
+    </button>`;
+  }).join('');
+}
+
+function loadRecent(code) {
+  document.getElementById('stock-input').value = code;
+  analyze();
+}
+
+// ── Autocomplete ──
+let acTimer = null;
+const acEl = document.getElementById('autocomplete');
+const inputEl = document.getElementById('stock-input');
+
+inputEl.addEventListener('input', (e) => {
+  clearTimeout(acTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { acEl.classList.remove('show'); return; }
+  acTimer = setTimeout(() => fetchSuggestions(q), 250);
+});
+
+async function fetchSuggestions(q) {
+  try {
+    const resp = await fetch(`/.netlify/functions/stock-api?q=${encodeURIComponent(q)}`);
+    const results = await resp.json();
+    if (!results || results.length === 0) {
+      acEl.innerHTML = '<div style="padding:0.6rem 1rem;color:var(--text-dim);font-size:0.82rem;text-align:center">未找到相关股票</div>';
+      acEl.classList.add('show');
+      return;
+    }
+    acEl.innerHTML = results.map(r => `
+      <div class="autocomplete-item" onclick="selectStock('${r.code}','${r.name}')">
+        <span class="s-name">${r.name}</span>
+        <span><span class="s-code">${r.code}</span><span class="s-ex">${r.exchange}</span></span>
+      </div>
+    `).join('');
+    acEl.classList.add('show');
+  } catch (e) {
+    acEl.classList.remove('show');
+  }
+}
+
+function selectStock(code, name) {
+  // 存代码不用中文名，否则后端无法识别
+  inputEl.value = code;
+  acEl.classList.remove('show');
+  // 自动触发分析
+  analyze();
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.search-wrap')) acEl.classList.remove('show');
+});
+
+// ── Main Analyze ──
+async function analyze() {
+  const btn = document.getElementById('analyze-btn');
+  const status = document.getElementById('status-msg');
+  const main = document.getElementById('main');
+  const query = inputEl.value.trim();
+
+  if (!query) {
+    showStatus('请输入股票代码或名称', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div><span>分析中...</span>';
+  status.className = 'status-msg loading';
+  status.innerHTML = '<div class="spinner" style="border-color:rgba(99,102,241,0.3);border-top-color:var(--accent)"></div><span>正在获取数据并分析估值...</span>';
+  status.style.display = 'flex';
+  main.style.display = 'none';
+
+  try {
+    const resp = await fetch(`/.netlify/functions/stock-api?code=${encodeURIComponent(query)}`);
+    const data = await resp.json();
+
+    if (data.error) {
+      showStatus('❌ ' + data.error, 'error');
+      return;
+    }
+
+    globalData = data;
+    // 记录到快速分析历史
+    addRecentAnalysis(data.stock);
+    // 先显示容器，确保 ECharts 能正确计算尺寸
+    main.style.display = 'block';
+    status.style.display = 'none';
+    renderAll(data);
+    // 图表容器可见后，触发 resize 确保尺寸正确
+    setTimeout(() => {
+      [gaugeChart, radarChart, rangeChart, scatterChart, quickChart].forEach(c => c && c.resize());
+    }, 100);
+
+  } catch (err) {
+    showStatus('网络错误: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>🚀</span><span>开始分析</span>';
+  }
+}
+
+function showStatus(msg, type) {
+  const status = document.getElementById('status-msg');
+  status.textContent = msg;
+  status.className = 'status-msg ' + type;
+  status.style.display = 'block';
+}
+
+// ── Render All ──
+function renderAll(d) {
+  // 确保图表在容器可见后才初始化
+  initCharts();
+
+  const s = d.stock;
+  const f = d.financial;
+  const v = d.valuation;
+
+  // Stock info
+  document.getElementById('s-name').textContent = s.name;
+  document.getElementById('s-code').textContent = s.code;
+  document.getElementById('s-exchange').textContent = s.exchange;
+  document.getElementById('s-industry').textContent = s.exchange; // no industry data from quote
+  document.getElementById('s-price').textContent = '¥' + s.price.toFixed(2);
+  const changeEl = document.getElementById('s-change');
+  changeEl.textContent = (s.change_pct >= 0 ? '▲ +' : '▼ ') + s.change_pct.toFixed(2) + '%';
+  changeEl.className = 'change-badge ' + (s.change_pct >= 0 ? 'up' : 'down');
+  changeEl.style.color = s.change_pct >= 0 ? 'var(--up-color)' : 'var(--down-color)';
+  document.getElementById('s-mktcap').textContent = s.market_cap > 0 ? s.market_cap.toFixed(1) + '亿' : '—';
+  document.getElementById('s-pe').textContent = s.pe ? s.pe.toFixed(1) + 'x' : '—';
+  document.getElementById('s-pb').textContent = s.pb ? s.pb.toFixed(1) + 'x' : '—';
+
+  // 3D Metrics
+  renderROE(v, f, s);
+  renderPS(v, f, s);
+  renderPEG(v, f, s);
+
+  // Score
+  renderGauge(v);
+  renderRadar(v);
+  renderRangeChart(v, s);
+  renderScatterChart(v, s, f);
+
+  // Conclusion
+  renderConclusion(v, s);
+
+  // Table
+  renderTable(v, s);
+
+  // Quick reference chart
+  renderQuickChart();
+}
+
+function renderROE(v, f, s) {
+  const roe = v.roe.value;
+  const badge = document.getElementById('roe-badge');
+  const valEl = document.getElementById('roe-value');
+  const bar = document.getElementById('roe-bar');
+  const threshEl = document.getElementById('roe-threshold');
+
+  valEl.textContent = roe + '%';
+  const score = v.roe.score;
+  document.getElementById('roe-score').textContent = score.toFixed(0) + '分';
+
+  if (roe >= 30) {
+    badge.textContent = '顶级成长'; badge.className = 'metric-badge green';
+    valEl.style.color = 'var(--green)';
+    bar.style.background = 'var(--green)';
+    threshEl.textContent = '✅ 通过';
+  } else if (roe >= 20) {
+    badge.textContent = '优质成长'; badge.className = 'metric-badge green';
+    valEl.style.color = 'var(--green)';
+    bar.style.background = 'var(--green)';
+    threshEl.textContent = '✅ 通过';
+  } else if (roe >= 15) {
+    badge.textContent = '一般'; badge.className = 'metric-badge yellow';
+    valEl.style.color = 'var(--yellow)';
+    bar.style.background = 'var(--yellow)';
+    threshEl.textContent = '⚠️ 未达20%';
+  } else {
+    badge.textContent = '弱成长'; badge.className = 'metric-badge red';
+    valEl.style.color = 'var(--red)';
+    bar.style.background = 'var(--red)';
+    threshEl.textContent = '❌ 排除';
+  }
+  bar.style.width = Math.min(100, roe) + '%';
+  document.getElementById('roe-sub').textContent = v.roe.rating + ' · ' + f.rev_growth + '%营收增速';
+}
+
+function renderPS(v, f, s) {
+  const ps = v.ps.current;
+  const badge = document.getElementById('ps-badge');
+  const valEl = document.getElementById('ps-value');
+  const bar = document.getElementById('ps-bar');
+
+  if (ps) {
+    valEl.textContent = ps + 'x';
+  } else {
+    valEl.textContent = '—';
+  }
+
+  document.getElementById('ps-range').textContent = v.ps.low + '-' + v.ps.high + 'x';
+  document.getElementById('ps-score').textContent = v.ps.score.toFixed(0) + '分';
+
+  const status = v.ps.status;
+  badge.textContent = status;
+  if (status === '低估') { badge.className = 'metric-badge green'; valEl.style.color = 'var(--green)'; bar.style.background = 'var(--green)'; }
+  else if (status === '合理') { badge.className = 'metric-badge yellow'; valEl.style.color = 'var(--yellow)'; bar.style.background = 'var(--yellow)'; }
+  else { badge.className = 'metric-badge red'; valEl.style.color = 'var(--red)'; bar.style.background = 'var(--red)'; }
+
+  if (ps) {
+    const pct = Math.min(100, (ps / (v.ps.high * 1.5)) * 100);
+    bar.style.width = pct + '%';
+  } else {
+    bar.style.width = '50%';
+  }
+
+  document.getElementById('ps-sub').textContent = f.rev_growth + '%营收增速 → 合理PS: ' + v.ps.low + '-' + v.ps.high + 'x';
+}
+
+function renderPEG(v, f, s) {
+  const peg = v.peg.current;
+  const badge = document.getElementById('peg-badge');
+  const valEl = document.getElementById('peg-value');
+  const bar = document.getElementById('peg-bar');
+
+  if (peg !== null) {
+    valEl.textContent = peg.toFixed(2);
+  } else {
+    valEl.textContent = '—';
+  }
+
+  document.getElementById('peg-fairpe').textContent = v.peg.fair_pe ? v.peg.fair_pe + 'x' : '—';
+  document.getElementById('peg-score').textContent = v.peg.score.toFixed(0) + '分';
+
+  const status = v.peg.status;
+  badge.textContent = status;
+  if (status === '严重低估' || status === '低估') { badge.className = 'metric-badge green'; valEl.style.color = 'var(--green)'; bar.style.background = 'var(--green)'; }
+  else if (status === '合理') { badge.className = 'metric-badge yellow'; valEl.style.color = 'var(--yellow)'; bar.style.background = 'var(--yellow)'; }
+  else { badge.className = 'metric-badge red'; valEl.style.color = 'var(--red)'; bar.style.background = 'var(--red)'; }
+
+  if (peg !== null) {
+    const pct = peg <= 0 ? 100 : Math.max(0, Math.min(100, (2 - peg) / 2 * 100));
+    bar.style.width = pct + '%';
+  } else {
+    bar.style.width = '50%';
+  }
+
+  document.getElementById('peg-sub').textContent = f.profit_growth + '%净利增速 → 合理PE: ' + (v.peg.fair_pe || '—') + 'x';
+}
+
+function renderGauge(v) {
+  const score = v.score;
+  const color = score >= 80 ? '#22c55e' : score >= 60 ? '#eab308' : '#ef4444';
+  const desc = score >= 80 ? '🌟 优质成长' : score >= 60 ? '✅ 合格成长' : score >= 40 ? '⚠️ 谨慎参与' : '🚫 回避';
+
+  document.getElementById('score-val').textContent = score.toFixed(0);
+  document.getElementById('score-val').style.color = color;
+  document.getElementById('score-desc').textContent = desc;
+
+  const option = {
+    series: [{
+      type: 'gauge',
+      startAngle: 200,
+      endAngle: -20,
+      min: 0, max: 100,
+      splitNumber: 5,
+      radius: '90%',
+      center: ['50%', '60%'],
+      axisLine: {
+        lineStyle: {
+          width: 14,
+          color: [
+            [40, '#ef4444'],
+            [60, '#eab308'],
+            [100, '#22c55e']
+          ]
+        }
+      },
+      pointer: { itemStyle: { color: color }, width: 4, length: '60%' },
+      axisTick: { distance: -15, length: 6, lineStyle: { color: '#fff', width: 1 } },
+      splitLine: { distance: -18, length: 12, lineStyle: { color: '#fff', width: 2 } },
+      axisLabel: { color: '#64748b', distance: 22, fontSize: 10 },
+      detail: {
+        valueAnimation: true,
+        formatter: '{value}',
+        color: 'inherit',
+        fontSize: 32,
+        fontWeight: 800,
+        offsetCenter: [0, '30%']
+      },
+      data: [{ value: score }]
+    }]
+  };
+  gaugeChart.setOption(option, true);
+}
+
+function renderRadar(v) {
+  const option = {
+    radar: {
+      indicator: [
+        { name: 'ROE', max: 100 },
+        { name: 'PS合理性', max: 100 },
+        { name: 'PEG匹配', max: 100 }
+      ],
+      radius: '65%',
+      axisName: { color: '#94a3b8', fontSize: 11 },
+      splitArea: { areaStyle: { color: ['rgba(99,102,241,0.05)', 'rgba(99,102,241,0.1)'] } },
+      axisLine: { lineStyle: { color: '#252a3a' } },
+      splitLine: { lineStyle: { color: '#252a3a' } },
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: [v.roe.score, v.ps.score, v.peg.score],
+        name: '三维评分',
+        areaStyle: { color: 'rgba(99,102,241,0.25)' },
+        lineStyle: { color: '#6366f1', width: 2 },
+        itemStyle: { color: '#6366f1' }
+      }]
+    }]
+  };
+  radarChart.setOption(option, true);
+}
+
+function renderRangeChart(v, s) {
+  const fp = v.fair_price;
+  const sp = s.price;
+  const safe = v.fair_price.safe;
+
+  const categories = ['当前股价', '合理股价\n(PEG=1)', '安全股价\n(PEG=0.8)'];
+  const values = [sp, fp.consensus || sp, safe || sp * 0.8].map(Number);
+
+  const option = {
+    tooltip: { trigger: 'axis', formatter: (p) => `${p[0].name}: ¥${p[0].value.toFixed(2)}` },
+    grid: { left: 60, right: 40, top: 20, bottom: 40 },
+    xAxis: { type: 'category', data: categories, axisLabel: { color: '#94a3b8', fontSize: 10 }, axisLine: { lineStyle: { color: '#252a3a' } } },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#64748b', formatter: '¥{value}' },
+      splitLine: { lineStyle: { color: '#1a1d27' } },
+      axisLine: { lineStyle: { color: '#252a3a' } }
+    },
+    series: [{
+      type: 'bar',
+      data: values.map((val, i) => ({
+        value: val,
+        itemStyle: {
+          color: i === 0 ? (val <= (fp.consensus || Infinity) ? '#ef4444' : '#22c55e') : '#6366f1',
+          borderRadius: i === 0 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+        }
+      })),
+      barWidth: '40%',
+      label: { show: true, position: 'top', formatter: '¥{c}', color: '#e2e8f0', fontSize: 11 }
+    }]
+  };
+  rangeChart.setOption(option, true);
+}
+
+function renderScatterChart(v, s, f) {
+  const stockGrowth = f.rev_growth;
+  const stockPS = v.ps.current || 5;
+  const stockSize = Math.min(70, Math.max(25, (s.market_cap || 1000) / 40));
+
+  // PS 合理区间边界
+  const psLow = v.ps.low || 3;
+  const psHigh = v.ps.high || 8;
+
+  const option = {
+    tooltip: { trigger: 'item', formatter: (p) => {
+      if (p.seriesType === 'scatter') {
+        return `${p.data.name || s.name}<br/>增速: ${p.data.value[0]}%<br/>PS: ${p.data.value[1]}x`;
+      }
+      return p.name;
+    }},
+    grid: { left: 55, right: 40, top: 20, bottom: 50 },
+    xAxis: {
+      name: '营收增速%', nameLocation: 'center', nameGap: 28,
+      nameTextStyle: { color: '#64748b', fontSize: 10 },
+      min: -5, max: 110,
+      axisLabel: { color: '#64748b' },
+      axisLine: { lineStyle: { color: '#252a3a' } },
+      splitLine: { lineStyle: { color: '#1a1d27' } },
+      splitNumber: 6
+    },
+    yAxis: {
+      name: 'PS(倍)', nameLocation: 'center', nameGap: 42,
+      nameTextStyle: { color: '#64748b', fontSize: 10 },
+      min: 0, max: 25,
+      axisLabel: { color: '#64748b' },
+      axisLine: { lineStyle: { color: '#252a3a' } },
+      splitLine: { lineStyle: { color: '#1a1d27' } }
+    },
+    series: [
+      // 合理区间背景（markArea）
+      {
+        type: 'scatter',
+        symbolSize: 0,
+        xAxisIndex: 0, yAxisIndex: 0,
+        markArea: {
+          silent: true,
+          tooltip: { show: false },
+          data: [
+            [
+              { name: `合理区间 PS ${psLow}-${psHigh}x`, xAxis: 0, yAxis: psLow, itemStyle: { color: 'rgba(34,197,94,0.08)' } },
+              { xAxis: 110, yAxis: psHigh }
+            ]
+          ]
+        },
+        data: [[0, 0]],
+      },
+      // 偏离区间上
+      {
+        type: 'scatter', symbolSize: 0,
+        xAxisIndex: 0, yAxisIndex: 0,
+        markArea: {
+          silent: true,
+          tooltip: { show: false },
+          data: [
+            [
+              { name: 'PS偏高区', xAxis: 0, yAxis: psHigh, itemStyle: { color: 'rgba(239,68,68,0.05)' } },
+              { xAxis: 110, yAxis: 25 }
+            ]
+          ]
+        },
+        data: [[0, 0]],
+      },
+      // 参考基准点
+      {
+        type: 'scatter', symbolSize: 22,
+        data: [
+          { value: [30, 6.5], name: '30%增速' },
+          { value: [50, 10], name: '50%增速' },
+          { value: [100, 16], name: '100%增速' },
+        ],
+        itemStyle: { color: 'rgba(148,163,184,0.3)', borderColor: '#94a3b8', borderWidth: 1 },
+        label: { show: true, formatter: (p) => p.data.name, color: '#64748b', fontSize: 9, position: 'bottom' }
+      },
+      // 当前股票
+      {
+        type: 'scatter',
+        symbolSize: stockSize,
+        data: [{ value: [stockGrowth, stockPS], name: s.name }],
+        itemStyle: { color: '#6366f1', shadowBlur: 20, shadowColor: 'rgba(99,102,241,0.6)' },
+        label: { show: true, formatter: () => s.name, color: '#6366f1', fontSize: 10, position: 'right', distance: 8 }
+      }
+    ]
+  };
+  scatterChart.setOption(option, true);
+}
+
+function renderQuickChart() {
+  const growthRates = [10, 20, 30, 40, 50, 100];
+  const fairPE = growthRates.map(g => g);           // PEG=1
+  const safePE = growthRates.map(g => g * 0.8);      // PEG=0.8
+  const psLow  = growthRates.map(g => g >= 50 ? 8 : g >= 30 ? 5 : 3);
+  const psHigh = growthRates.map(g => g >= 100 ? 20 : g >= 50 ? 12 : g >= 30 ? 8 : 6);
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params) => {
+        const g = params[0].axisValue;
+        const fPE = params.find(p => p.seriesName === '合理PE(PEG=1)');
+        const sPE = params.find(p => p.seriesName === '安全PE(PEG=0.8)');
+        const ps = params.find(p => p.seriesName === 'PS合理区间');
+        let html = `<b>增速 ${g}%</b><br/>`;
+        if (fPE) html += `合理PE: ${fPE.value}x<br/>`;
+        if (sPE) html += `安全PE: ${sPE.value}x<br/>`;
+        if (ps) html += `PS合理: ${ps.value}x`;
+        return html;
+      }
+    },
+    legend: {
+      data: ['合理PE(PEG=1)', '安全PE(PEG=0.8)', 'PS合理区间'],
+      bottom: 0,
+      textStyle: { color: '#94a3b8', fontSize: 11 },
+      itemWidth: 14
+    },
+    grid: { left: 55, right: 40, top: 20, bottom: 55 },
+    xAxis: {
+      type: 'category',
+      data: growthRates.map(g => g + '%'),
+      axisLabel: { color: '#94a3b8' },
+      axisLine: { lineStyle: { color: '#252a3a' } },
+      name: '净利增速',
+      nameLocation: 'center',
+      nameGap: 30,
+      nameTextStyle: { color: '#64748b', fontSize: 10 }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: 'PE(倍)',
+        nameTextStyle: { color: '#64748b', fontSize: 10 },
+        axisLabel: { color: '#64748b' },
+        axisLine: { lineStyle: { color: '#252a3a' } },
+        splitLine: { lineStyle: { color: '#1a1d27' } },
+        max: 110
+      },
+      {
+        type: 'value',
+        name: 'PS(倍)',
+        nameTextStyle: { color: '#64748b', fontSize: 10 },
+        axisLabel: { color: '#64748b' },
+        axisLine: { lineStyle: { color: '#252a3a' } },
+        splitLine: { show: false },
+        max: 25
+      }
+    ],
+    series: [
+      {
+        name: '合理PE(PEG=1)',
+        type: 'bar',
+        barWidth: '22%',
+        barGap: '20%',
+        itemStyle: { color: '#6366f1', borderRadius: [3, 3, 0, 0] },
+        data: fairPE,
+        label: { show: true, position: 'top', formatter: '{c}x', color: '#6366f1', fontSize: 10 }
+      },
+      {
+        name: '安全PE(PEG=0.8)',
+        type: 'bar',
+        barWidth: '22%',
+        itemStyle: { color: '#8b5cf6', borderRadius: [3, 3, 0, 0] },
+        data: safePE,
+        label: { show: true, position: 'top', formatter: '{c}x', color: '#8b5cf6', fontSize: 10 }
+      },
+      {
+        name: 'PS合理区间',
+        type: 'line',
+        yAxisIndex: 1,
+        symbol: 'circle',
+        symbolSize: 7,
+        lineStyle: { color: '#22c55e', width: 2, type: 'dashed' },
+        itemStyle: { color: '#22c55e' },
+        data: psHigh,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: (p) => `${psLow[p.dataIndex]}-${p.value}x`,
+          color: '#22c55e',
+          fontSize: 9
+        },
+        markPoint: {
+          symbol: 'pin',
+          symbolSize: 0,
+          label: { show: false }
+        }
+      }
+    ]
+  };
+  quickChart.setOption(option, true);
+}
+
+function renderConclusion(v, s) {
+  document.getElementById('verdict-title').textContent = v.verdict;
+  document.getElementById('verdict-score').textContent = '综合评分: ' + v.score.toFixed(0) + '分  |  当前价: ¥' + s.price.toFixed(2);
+
+  const oneLinerEl = document.getElementById('one-liner');
+  oneLinerEl.textContent = v.one_liner;
+
+  if (v.one_liner.includes('💎') || v.score >= 80) {
+    oneLinerEl.className = 'conclusion-one-liner green';
+  } else if (v.one_liner.includes('❌') || v.score < 40) {
+    oneLinerEl.className = 'conclusion-one-liner red';
+  } else {
+    oneLinerEl.className = 'conclusion-one-liner yellow';
+  }
+
+  document.getElementById('verdict-detail').textContent = v.verdict_detail;
+}
+
+function renderTable(v, s) {
+  document.getElementById('t-roe').textContent = v.roe.value + '%';
+  document.getElementById('t-roe-status').innerHTML = v.roe.pass
+    ? '<span class="tag green">✅ 通过</span>'
+    : '<span class="tag red">❌ 未通过</span>';
+
+  document.getElementById('t-ps').textContent = v.ps.current ? v.ps.current + 'x' : '—';
+  document.getElementById('t-ps-range').textContent = v.ps.low + '-' + v.ps.high + 'x';
+  const psTag = v.ps.status === '低估' ? 'green' : v.ps.status === '合理' ? 'yellow' : 'red';
+  document.getElementById('t-ps-status').innerHTML = `<span class="tag ${psTag}">${v.ps.status}</span>`;
+
+  document.getElementById('t-peg').textContent = v.peg.current !== null ? v.peg.current.toFixed(2) : '—';
+  const pegTag = v.peg.status === '严重低估' || v.peg.status === '低估' ? 'green'
+    : v.peg.status === '合理' ? 'yellow' : 'red';
+  document.getElementById('t-peg-status').innerHTML = `<span class="tag ${pegTag}">${v.peg.status}</span>`;
+
+  document.getElementById('t-price-peg').textContent = v.fair_price.consensus ? '¥' + v.fair_price.consensus.toFixed(2) : '—';
+  document.getElementById('t-price-safe').textContent = '安全价: ' + (v.fair_price.safe ? '¥' + v.fair_price.safe.toFixed(2) : '—');
+
+  const upside = v.fair_price.upside_pct;
+  document.getElementById('t-upside').textContent = upside !== null ? (upside >= 0 ? '+' : '') + upside.toFixed(1) + '%' : '—';
+  const upTag = upside !== null ? (upside >= 0 ? 'green' : 'red') : '';
+  document.getElementById('t-upside-status').innerHTML = upside !== null
+    ? `<span class="tag ${upTag}">${upside >= 0 ? '低估' : '高估'}</span>`
+    : '—';
+
+  document.getElementById('t-price-status').innerHTML = upside !== null
+    ? `<span class="tag ${upside >= 0 ? 'green' : 'red'}">${upside >= 0 ? '偏低' : '偏高'}</span>`
+    : '—';
+}
+
+// Keyboard enter
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') analyze();
+});
+</script>
+</body>
+</html>
