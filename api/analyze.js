@@ -1,7 +1,5 @@
 /**
  * Vercel Serverless Function: 成长股估值分析
- * GET /api/analyze?code=sh600519
- * GET /api/analyze?q=贵州茅台  (搜索)
  */
 
 const RETRY = (fn, retries = 3, delay = 2000) =>
@@ -14,11 +12,24 @@ async function fetchTencentQuote(code) {
     : (code.startsWith('0') || code.startsWith('3') ? 'sz' + code : 'sh' + code);
 
   const url = `https://qt.gtimg.cn/q=${tc_code}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
-    signal: AbortSignal.timeout(8000)
-  });
-  const text = await res.text();
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' }
+    });
+  } catch (e) {
+    console.error('Tencent fetch error:', e.message);
+    return null;
+  }
+
+  let text;
+  try {
+    text = await res.text();
+  } catch (e) {
+    console.error('Tencent text read error:', e.message);
+    return null;
+  }
+
   const m = text.match(/v_[a-z]{2}\d{6}="([^"]+)"/);
   if (!m) return null;
 
@@ -49,11 +60,24 @@ async function fetchTencentQuote(code) {
 // ─── 腾讯股票搜索 ────────────────────────────────────────────
 async function searchStocks(query) {
   const url = `https://smartbox.gtimg.cn/s3/?v=1&t=all&q=${encodeURIComponent(query)}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' },
-    signal: AbortSignal.timeout(5000)
-  });
-  const text = await res.text();
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com' }
+    });
+  } catch (e) {
+    console.error('Search fetch error:', e.message);
+    return [];
+  }
+
+  let text;
+  try {
+    text = await res.text();
+  } catch (e) {
+    console.error('Search text error:', e.message);
+    return [];
+  }
+
   const results = [];
   for (const line of text.split('\n')) {
     if (line.includes('v_hint=') && !line.includes('v_hint="N"')) {
@@ -80,13 +104,27 @@ async function fetchFinancialData(code) {
     : (code.startsWith('0') || code.startsWith('3') ? 'SZ' + code : 'SH' + code);
 
   const url = `https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/ZYZBAjaxNew?type=0&code=${em_code}`;
-  const res = await RETRY(() =>
-    fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.securities.eastmoney.com' },
-      signal: AbortSignal.timeout(10000)
-    })
-  );
-  const data = await res.json();
+
+  let res;
+  try {
+    res = await RETRY(() =>
+      fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.securities.eastmoney.com' }
+      })
+    );
+  } catch (e) {
+    console.error('EM fetch error:', e.message);
+    return null;
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    console.error('EM JSON parse error:', e.message);
+    return null;
+  }
+
   const records = data?.data || [];
   if (!records.length) return null;
 
@@ -211,50 +249,58 @@ async function resolveCode(query) {
     return query.startsWith('0') || query.startsWith('3') ? 'sz' + query : 'sh' + query;
   }
   if (query.startsWith('sh') || query.startsWith('sz')) return query;
-  const results = await searchStocks(query);
-  return results.length > 0 ? results[0].code : null;
+  try {
+    const results = await searchStocks(query);
+    return results.length > 0 ? results[0].code : null;
+  } catch (e) {
+    console.error('resolveCode error:', e.message);
+    return null;
+  }
 }
 
 // ─── Vercel Handler ────────────────────────────────────────
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
-  const { code, q } = req.query || {};
-
-  if (q != null) {
-    if (q.trim().length < 1) return res.status(200).type('application/json; charset=utf-8').json([]);
-    try {
-      const results = await searchStocks(q.trim());
-      return res.status(200).type('application/json; charset=utf-8').json(results);
-    } catch (e) {
-      console.error('Search error:', e);
-      return res.status(200).type('application/json; charset=utf-8').json([]);
-    }
-  }
-
-  if (!code) {
-    return res.status(400).type('application/json; charset=utf-8').json({ error: '请输入股票代码或名称' });
-  }
-
   try {
-    const resolvedCode = await resolveCode(code);
-    if (!resolvedCode) return res.status(404).type('application/json; charset=utf-8').json({ error: `无法识别股票: ${code}` });
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.status(200).end();
+
+    const { code, q } = req.query || {};
+
+    if (q != null) {
+      if (String(q).trim().length < 1) {
+        return res.status(200).type('application/json; charset=utf-8').json([]);
+      }
+      const results = await searchStocks(String(q).trim());
+      return res.status(200).type('application/json; charset=utf-8').json(results);
+    }
+
+    if (!code) {
+      return res.status(400).type('application/json; charset=utf-8').json({ error: '请输入股票代码或名称' });
+    }
+
+    const resolvedCode = await resolveCode(String(code));
+    if (!resolvedCode) {
+      return res.status(404).type('application/json; charset=utf-8').json({ error: `无法识别股票: ${code}` });
+    }
 
     const [quote, financial] = await Promise.all([
       fetchTencentQuote(resolvedCode),
       fetchFinancialData(resolvedCode),
     ]);
 
-    if (!quote) return res.status(404).type('application/json; charset=utf-8').json({ error: `获取股票行情失败: ${resolvedCode}` });
-    if (!financial) return res.status(404).type('application/json; charset=utf-8').json({ error: `获取财务数据失败: ${resolvedCode}` });
+    if (!quote) {
+      return res.status(404).type('application/json; charset=utf-8').json({ error: `获取股票行情失败: ${resolvedCode}` });
+    }
+    if (!financial) {
+      return res.status(404).type('application/json; charset=utf-8').json({ error: `获取财务数据失败: ${resolvedCode}` });
+    }
 
     const valuation = calculateValuation(quote, financial);
     return res.status(200).type('application/json; charset=utf-8').json({ stock: quote, financial, valuation });
   } catch (e) {
-    console.error('Analyze error:', e);
-    return res.status(500).type('application/json; charset=utf-8').json({ error: '服务器内部错误: ' + e.message });
+    console.error('Unhandled error:', e);
+    return res.status(500).type('text/plain; charset=utf-8').send('Internal server error: ' + e.message);
   }
 };
