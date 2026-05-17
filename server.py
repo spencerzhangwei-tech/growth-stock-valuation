@@ -10,9 +10,26 @@ import math
 import requests
 from flask import Flask, request, jsonify, send_file
 from urllib.parse import quote
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
+
+# ─── 简易缓存（财务数据5分钟，搜索1分钟）───────────────────────
+_cache = {}
+_cache_lock = threading.Lock()
+
+def cache_get(key, ttl=300):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and time.time() - entry['ts'] < ttl:
+            return entry['data']
+    return None
+
+def cache_set(key, data):
+    with _cache_lock:
+        _cache[key] = {'data': data, 'ts': time.time()}
 
 
 def to_json(obj):
@@ -110,7 +127,12 @@ def float_or(s, default=0.0):
 
 
 def fetch_financial_data_em(code):
-    """获取财务数据(东方财富接口)"""
+    """获取财务数据(东方财富接口)，5分钟缓存"""
+    # 缓存检查
+    cached = cache_get(f'em:{code}', ttl=300)
+    if cached is not None:
+        return cached
+
     # 转换代码
     if code.startswith('sh') or code.startswith('sz'):
         em_code = code.replace('sh', 'SH').replace('sz', 'SZ')
@@ -128,9 +150,16 @@ def fetch_financial_data_em(code):
         'Referer': 'https://emweb.securities.eastmoney.com'
     }
 
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            data = resp.json()
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # 退避: 2s, 4s
+                continue
+            print(f"Financial data error: {e}")
+            return None
 
         records = data.get('data', [])
         if not records or len(records) == 0:
@@ -198,7 +227,7 @@ def fetch_financial_data_em(code):
         # 总股本(亿股)从市值反推
         # 市值 = 股价 × 总股本(亿股)
 
-        return {
+        result = {
             'roe': round(roe, 2),
             'rev_growth': round(rev_growth, 2),
             'profit_growth': round(profit_growth, 2),
@@ -210,9 +239,11 @@ def fetch_financial_data_em(code):
             'prev_revenue': round(prev_revenue, 2),
             'prev_net_profit': round(prev_profit, 2),
         }
-    except Exception as e:
-        print(f"Financial data error: {e}")
-        return None
+        cache_set(f'em:{code}', result)
+        return result
+
+    print(f"Financial data error: exhausted retries")
+    return None
 
 
 def calculate_valuation(quote, financial):
@@ -547,10 +578,15 @@ def api_analyze():
 
 @app.route('/api/search')
 def api_search():
-    """搜索股票"""
+    """搜索股票，1分钟缓存"""
     query = request.args.get('q', '').strip()
     if not query or len(query) < 1:
         return app.response_class(response='[]', status=200, mimetype='application/json')
+
+    # 缓存检查
+    cached = cache_get(f'search:{query}', ttl=60)
+    if cached is not None:
+        return app.response_class(response=to_json(cached), status=200, mimetype='application/json')
 
     # 用腾讯搜索接口
     url = f"https://smartbox.gtimg.cn/s3/?v=1&t=all&q={quote(query)}"
@@ -592,6 +628,7 @@ def api_search():
                                     'exchange': exchange,
                                 })
 
+        cache_set(f'search:{query}', results[:8])
         return app.response_class(
             response=to_json(results[:8]),
             status=200,
